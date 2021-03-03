@@ -304,6 +304,8 @@ static bool attach_pid(pid_t pid, process &p)
 		return false;
 	}
 
+	ptrace(PTRACE_CONT, pid, nullptr, nullptr);
+
 	std::stringstream ss;
 	ss << "/proc/" << pid;
 	if(-1 != (p.mem = open((ss.str() + "/mem").c_str(), O_RDONLY)))
@@ -367,16 +369,32 @@ static bool open_dosbox(process &p)
 
 	printf("Unable to find dosbox. Is it running?\n");
 	closedir(dir);
-	return true;
+	return false;
 }
 
-static constexpr attr_t hero_color[num_heroes] =
+static constexpr attr_t no_color = "\x1b[0m";
+static constexpr attr_t dark = "\x1b[1;90m";
+static constexpr attr_t white = "\x1b[1;97m";
+static constexpr attr_t green = "\x1b[1;92m";
+static constexpr attr_t yellow = "\x1b[1;93m";
+static constexpr attr_t red = "\x1b[1;91m";
+static constexpr attr_t blue = "\x1b[1;94m";
+static constexpr attr_t cyan = "\x1b[1;96m";
+
+static constexpr attr_t food_good = "\x1b[1;41;97m";
+static constexpr attr_t water_good = "\x1b[1;104;97m";
+static constexpr attr_t hunger_bad = "\x1b[1;103;97m";
+static constexpr attr_t hunger_danger = "\x1b[1;101;97m";
+static constexpr attr_t hunger_empty = "\x1b[1;100;97m";
+
+static void write_str(attr_t attr, const char *fmt, ...)
 {
-	"\x1b[92m",
-	"\x1b[93m",
-	"\x1b[91m",
-	"\x1b[94m"
-};
+	va_list args;
+	va_start(args, fmt);
+	printf("%s", attr);
+	vprintf(fmt, args);
+	va_end(args);
+}
 
 static void write_str(int x, int y, attr_t attr, const char *fmt, ...)
 {
@@ -385,6 +403,22 @@ static void write_str(int x, int y, attr_t attr, const char *fmt, ...)
 	printf("\x1b[%d;%dH%s", (y+1), (x+1), attr);
 	vprintf(fmt, args);
 	va_end(args);
+}
+
+static bool init_screen()
+{
+	printf("\x1b?25l"); // hide cursor
+	return true;
+}
+
+static void clear_screen()
+{
+	printf("\x1b[2J");
+}
+
+static void flip_screen()
+{
+	fflush(stdout);
 }
 
 #elif defined(WIN32)
@@ -411,12 +445,6 @@ static constexpr attr_t water_good = BACKGROUND_BLUE | white;
 static constexpr attr_t hunger_bad = BACKGROUND_GREEN | BACKGROUND_RED | white;
 static constexpr attr_t hunger_danger = BACKGROUND_RED | BACKGROUND_INTENSITY | white;
 static constexpr attr_t hunger_empty = BACKGROUND_INTENSITY | white;
-
-static constexpr attr_t hero_color[num_heroes] =
-{
-	green,	yellow,
-	red,	blue
-};
 
 static HANDLE con0;
 static HANDLE con1;
@@ -605,20 +633,26 @@ static void clear_screen()
 	#error Platform not supported.
 #endif
 
+static constexpr attr_t hero_color[num_heroes] =
+{
+	green,	yellow,
+	red,	blue
+};
+
 #define concat_if_true(cond, to, what) if((cond)) { to << what; }
 
 static void write_stat_data(const word_status &s)
 {
 	 write_str(no_color, "% 5d", s.curr);
 	 write_str(white, "/");
-	 write_str(no_color, "% 5d", s.curr);
+	 write_str(no_color, "% 5d", s.full);
 }
 
 static void write_stat_data(const byte_status &s)
 {
 	 write_str(no_color, "% 3d", s.curr);
 	 write_str(white, "/");
-	 write_str(no_color, "% 3d", s.curr);
+	 write_str(no_color, "% 3d", s.full);
 }
 
 template <typename T>
@@ -657,6 +691,7 @@ static void write_hunger_bar(int x, int y, bool food, int16_t v)
 
 	write_str(x, y, fill, "%s", s.substr(0, num_full).c_str());
 	write_str(hunger_empty, "%s", s.substr(num_full).c_str());
+	write_str(no_color, "");
 }
 
 static const char *get_level_name(uint32_t exp, uint32_t &lvl)
@@ -796,7 +831,8 @@ static void update(const process &dosbox, uint64_t block)
 				uint32_t xp_level;
 				static const char * const skills[] = { "Fighter", "Ninja", "Priest", "Wizard" };
 				const char *rank = get_level_name(h.main_exp[i], xp_level);
-				write_str(pos.x, pos.y + 7 + i, white, "%s %s (L:%d, X:%d)", rank, skills[i], xp_level, h.main_exp[i]);
+				write_str(pos.x, pos.y + 7 + i, cyan, "%s %s", rank, skills[i]);
+				write_str(white, " (L:%d, X:%d)", xp_level, h.main_exp[i]);
 			}
 		}
 
